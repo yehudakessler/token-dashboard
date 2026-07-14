@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import re
+import shutil
 import sqlite3
+import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -170,6 +172,43 @@ def _prefixed(source: str, value):
     return value if value.startswith(f"{source}:") else f"{source}:{value}"
 
 
+@contextmanager
+def _recovered_legacy_copy(legacy_path: Path, temp_parent: Path):
+    """Recover a private copy of a legacy DB without opening the original writable."""
+    temp_parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".legacy-db-", dir=temp_parent) as temp_dir:
+        snapshot = Path(temp_dir) / legacy_path.name
+        sources = [legacy_path, *(Path(f"{legacy_path}{suffix}") for suffix in ("-journal", "-wal", "-shm"))]
+
+        def signatures():
+            return {
+                path: (path.is_file(), path.stat().st_size, path.stat().st_mtime_ns)
+                if path.is_file() else (False, 0, 0)
+                for path in sources
+            }
+
+        before = signatures()
+        for source in sources:
+            if source.is_file():
+                suffix = str(source)[len(str(legacy_path)):]
+                shutil.copy2(source, Path(f"{snapshot}{suffix}"))
+        if signatures() != before:
+            raise RuntimeError("legacy database changed while its migration snapshot was copied")
+
+        # A crashed legacy dashboard can leave a hot rollback journal. SQLite
+        # must write while recovering it, so recovery happens only on this
+        # disposable copy. The original DB and sidecars remain byte-for-byte
+        # untouched and the recovered snapshot is then opened read-only below.
+        recovery = sqlite3.connect(snapshot)
+        try:
+            recovery.execute("PRAGMA schema_version").fetchone()
+            recovery.execute("PRAGMA wal_checkpoint(FULL)").fetchone()
+            recovery.commit()
+        finally:
+            recovery.close()
+        yield snapshot
+
+
 def migrate_legacy_db(legacy_path: Union[str, Path], target_path: Union[str, Path]) -> dict:
     """Copy the old Claude-only DB into the combined DB without touching it."""
     legacy_path, target_path = Path(legacy_path), Path(target_path)
@@ -183,10 +222,10 @@ def migrate_legacy_db(legacy_path: Union[str, Path], target_path: Union[str, Pat
         working_path.unlink()
     init_db(working_path)
     marker = f"claude-db:{legacy_path.resolve()}"
-    with connect(working_path) as dst:
+    with _recovered_legacy_copy(legacy_path, working_path.parent) as recovered_path, connect(working_path) as dst:
         if dst.execute("SELECT 1 FROM legacy_migrations WHERE name=?", (marker,)).fetchone():
             return {"migrated": False, "reason": "already migrated", "rows": 0}
-        src = sqlite3.connect(f"file:{legacy_path.as_posix()}?mode=ro", uri=True)
+        src = sqlite3.connect(f"file:{recovered_path.as_posix()}?mode=ro", uri=True)
         src.row_factory = sqlite3.Row
         copied = 0
         try:

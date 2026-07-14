@@ -1,4 +1,5 @@
 import os
+import shutil
 import sqlite3
 import tempfile
 import unittest
@@ -54,10 +55,27 @@ class LegacyMigrationTests(unittest.TestCase):
         self.assertEqual(overview_totals(self.new)["input_tokens"], 10)
 
     def test_legacy_database_is_not_modified(self):
-        before = Path(self.old).read_bytes()
-        migrate_legacy_db(self.old, self.new)
-        after = Path(self.old).read_bytes()
-        self.assertEqual(before, after)
+        hot = Path(self.tmp) / "hot.db"
+        connection = sqlite3.connect(self.old)
+        try:
+            connection.execute("PRAGMA journal_mode=DELETE")
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("UPDATE messages SET input_tokens=999 WHERE uuid='a1'")
+            journal = Path(f"{self.old}-journal")
+            self.assertTrue(journal.is_file())
+            shutil.copy2(self.old, hot)
+            shutil.copy2(journal, Path(f"{hot}-journal"))
+        finally:
+            connection.rollback()
+            connection.close()
+
+        before_db = hot.read_bytes()
+        before_journal = Path(f"{hot}-journal").read_bytes()
+        result = migrate_legacy_db(hot, self.new)
+        self.assertTrue(result["migrated"])
+        self.assertEqual(hot.read_bytes(), before_db)
+        self.assertEqual(Path(f"{hot}-journal").read_bytes(), before_journal)
+        self.assertEqual(overview_totals(self.new)["input_tokens"], 10)
 
     def test_history_survives_when_jsonls_are_absent(self):
         migrate_legacy_db(self.old, self.new)
