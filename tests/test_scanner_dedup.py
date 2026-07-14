@@ -86,7 +86,7 @@ class StreamingDedupTests(unittest.TestCase):
         self.assertEqual(row["cache_read_tokens"], 500)
         self.assertEqual(row["cache_create_1h_tokens"], 200)
         # Winner is the last-seen JSONL row (the final snapshot).
-        self.assertEqual(row["uuid"], "r3")
+        self.assertEqual(row["uuid"], "claude:r3")
 
     def test_incremental_scan_final_replaces_partial(self):
         """Partials written first, final appended later — scan twice, final wins."""
@@ -117,7 +117,7 @@ class StreamingDedupTests(unittest.TestCase):
 
         self.assertEqual(len(rows), 1, "final snapshot must replace earlier partial across scans")
         self.assertEqual(rows[0]["output_tokens"], 303)
-        self.assertEqual(rows[0]["uuid"], "r3")
+        self.assertEqual(rows[0]["uuid"], "claude:r3")
 
     def test_superseded_tool_calls_are_removed(self):
         """When a partial with tool_use is replaced by a final, the partial's
@@ -157,7 +157,7 @@ class StreamingDedupTests(unittest.TestCase):
             ).fetchall()
 
         self.assertEqual(len(tools), 1, "only the winning record's tool_calls remain")
-        self.assertEqual(tools[0]["message_uuid"], "r2")
+        self.assertEqual(tools[0]["message_uuid"], "claude:r2")
 
     def test_assistant_without_message_id_falls_back_to_uuid(self):
         """No message.id → behave as before: each uuid is its own row."""
@@ -184,7 +184,7 @@ class StreamingDedupTests(unittest.TestCase):
                 "SELECT uuid FROM messages WHERE type='assistant' ORDER BY uuid"
             ).fetchall()
 
-        self.assertEqual([r["uuid"] for r in rows], ["a1", "a2"])
+        self.assertEqual([r["uuid"] for r in rows], ["claude:a1", "claude:a2"])
 
 
 if __name__ == "__main__":

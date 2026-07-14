@@ -124,7 +124,7 @@ class EndToEndTotalsTests(unittest.TestCase):
             tool_count = c.execute(
                 "SELECT COUNT(*) FROM tool_calls WHERE tool_name='Read'"
             ).fetchone()[0]
-        self.assertEqual(assistant_uuids, ["a2", "a3", "a4"])
+        self.assertEqual(assistant_uuids, ["claude:a2", "claude:a3", "claude:a4"])
         self.assertEqual(tool_count, 1, "single tool_use row in fixture")
 
 

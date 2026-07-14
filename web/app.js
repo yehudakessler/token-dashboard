@@ -24,12 +24,19 @@ export const fmt = {
 };
 
 export async function api(path, opts) {
+  if ((!opts || !opts.method || opts.method === 'GET') && path.startsWith('/api/') && !path.includes('/api/stream')) {
+    path += `${path.includes('?') ? '&' : '?'}source=${encodeURIComponent(state.source)}`;
+  }
   const r = await fetch(path, opts);
   if (!r.ok) throw new Error(`${path} → ${r.status}`);
   return r.json();
 }
 
-export const state = { plan: 'api', pricing: null };
+export const state = {
+  plan: 'api',
+  pricing: null,
+  source: localStorage.getItem('td.source') || 'all',
+};
 
 const ROUTES = {
   '/overview': () => import('/web/routes/overview.js'),
@@ -50,10 +57,24 @@ function buildTopbar() {
       ${Object.keys(ROUTES).map(p => `<a href="#${p}" data-route="${p}">${p.slice(1)}</a>`).join('')}
     </nav>
     <div class="spacer"></div>
+    <label class="source-control" title="Filter every view by agent">
+      <span>Source</span>
+      <select id="source-select" aria-label="Usage source">
+        <option value="all">All</option>
+        <option value="claude">Claude</option>
+        <option value="codex">Codex</option>
+      </select>
+    </label>
     <span class="pill" id="plan-pill">api</span>
     <span class="pill muted" title="Cmd/Ctrl+B blurs sensitive text">⌘B blur</span>
   `;
   document.body.prepend(wrap);
+  $('#source-select', wrap).value = state.source;
+  $('#source-select', wrap).addEventListener('change', e => {
+    state.source = e.target.value;
+    localStorage.setItem('td.source', state.source);
+    render();
+  });
 }
 
 function setActiveTab(routeKey) {

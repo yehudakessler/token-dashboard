@@ -12,12 +12,13 @@ async function renderList(root) {
     <div class="card">
       <h2>Sessions</h2>
       <table>
-        <thead><tr><th>started</th><th>project</th><th class="num">turns</th><th class="num">tokens</th><th>session</th></tr></thead>
+        <thead><tr><th>started</th><th>project</th><th>source</th><th class="num">turns</th><th class="num">tokens</th><th>session</th></tr></thead>
         <tbody>
           ${list.map(s => `
             <tr>
               <td class="mono">${fmt.ts(s.started)}</td>
               <td title="${fmt.htmlSafe(s.project_slug)}">${fmt.htmlSafe(s.project_name || s.project_slug)}</td>
+              <td><span class="badge ${s.source}">${fmt.htmlSafe(s.source)}</span></td>
               <td class="num">${fmt.int(s.turns)}</td>
               <td class="num">${fmt.int(s.tokens)}</td>
               <td><a href="#/sessions/${encodeURIComponent(s.session_id)}" class="mono">${fmt.htmlSafe(s.session_id.slice(0,8))}…</a></td>
@@ -55,6 +56,7 @@ async function renderSession(root, id) {
       </h2>
       <div class="flex muted" style="font-family:var(--mono);font-size:12px;flex-wrap:wrap;gap:14px">
         <span>${fmt.htmlSafe(project)}</span>
+        <span class="badge ${(turns[0] || {}).source || ''}">${fmt.htmlSafe((turns[0] || {}).source || '')}</span>
         <span>${fmt.ts(started)} → ${fmt.ts(ended)}</span>
         <span>${turns.length} records</span>
         <span>${fmt.int(totalIn)} in · ${fmt.int(totalOut)} out · ${fmt.int(totalCacheRd)} cache rd</span>

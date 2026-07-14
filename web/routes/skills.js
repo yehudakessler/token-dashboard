@@ -30,6 +30,7 @@ export default async function (root) {
   const since = sinceIso(range);
   const url = '/api/skills' + (since ? '?since=' + encodeURIComponent(since) : '');
   const skills = await api(url);
+  const codexOnly = (localStorage.getItem('td.source') || 'all') === 'codex';
 
   const totalInvocations = skills.reduce((s, r) => s + r.invocations, 0);
   const totalSessions = new Set(); // not exact — we'd need another query; skip.
@@ -46,6 +47,8 @@ export default async function (root) {
       <div class="spacer"></div>
       ${rangeTabs}
     </div>
+
+    ${codexOnly ? '<div class="card" style="margin-bottom:16px"><strong>Codex skill counts unavailable</strong><p class="muted" style="margin:6px 0 0">Codex rollout logs do not reliably prove skill invocations, so this dashboard does not estimate them.</p></div>' : ''}
 
     <div class="row cols-2">
       <div class="card kpi"><div class="label">Unique skills used</div><div class="value">${fmt.int(skills.length)}</div></div>

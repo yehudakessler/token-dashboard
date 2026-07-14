@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+import urllib.error
 import urllib.request
 
 from token_dashboard.db import init_db
@@ -49,6 +50,21 @@ class ServerTests(unittest.TestCase):
         self.assertIn("sessions", body)
         self.assertEqual(body["sessions"], 1)
 
+    def test_api_source_filter(self):
+        with sqlite3.connect(self.db) as c:
+            c.execute("INSERT INTO messages (uuid,session_id,project_slug,type,timestamp,input_tokens,source) VALUES ('codex-a','codex-s','p','assistant','2026-04-19T00:00:02Z',50,'codex')")
+            c.commit()
+        claude = json.loads(self._get("/api/overview?source=claude"))
+        codex = json.loads(self._get("/api/overview?source=codex"))
+        self.assertEqual(claude["input_tokens"], 1)
+        self.assertEqual(codex["input_tokens"], 50)
+        self.assertIsNone(codex["cost_usd"])
+
+    def test_api_rejects_invalid_source(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/overview?source=other")
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_prompts_json(self):
         body = json.loads(self._get("/api/prompts?limit=10"))
         self.assertIsInstance(body, list)
@@ -57,6 +73,14 @@ class ServerTests(unittest.TestCase):
         body = json.loads(self._get("/api/projects"))
         self.assertIsInstance(body, list)
         self.assertEqual(body[0]["project_slug"], "p")
+
+    def test_encoded_namespaced_session_id(self):
+        with sqlite3.connect(self.db) as c:
+            c.execute("UPDATE messages SET session_id='claude:s' WHERE session_id='s'")
+            c.commit()
+        body = json.loads(self._get("/api/sessions/claude%3As?source=claude"))
+        self.assertEqual(len(body), 2)
+        self.assertEqual(body[0]["source"], "claude")
 
     def test_plan_json(self):
         body = json.loads(self._get("/api/plan"))

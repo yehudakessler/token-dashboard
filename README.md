@@ -1,6 +1,6 @@
 # Token Dashboard
 
-A local dashboard that reads the JSONL transcripts Claude Code writes to `~/.claude/projects/` and turns them into per-prompt cost analytics, tool/file heatmaps, subagent attribution, cache analytics, project comparisons, and a rule-based tips engine.
+A local dashboard that combines Claude Code transcripts from `~/.claude/projects/` with Codex rollouts from `~/.codex/sessions/`. It provides source-filtered prompts, token usage, tools, projects, sessions, and reliable Claude skill counts.
 
 **Everything runs locally.** No data leaves your machine — no telemetry, no API calls for your data, no login.
 
@@ -19,7 +19,7 @@ A local dashboard that reads the JSONL transcripts Claude Code writes to `~/.cla
 ## Prerequisites
 
 - **Python 3.8 or newer** — already installed on macOS and most Linux. On Windows: `winget install Python.Python.3.12` or download from python.org.
-- **Claude Code** — installed and with at least one session run. The dashboard reads those sessions. If you just installed Claude Code and haven't used it yet, run at least one prompt first.
+- **Claude Code and/or Codex** — installed with at least one local session.
 - **A web browser.** Any modern one.
 
 No `pip install`. No Node.js. No build step.
@@ -35,7 +35,7 @@ python3 cli.py dashboard
 > On Windows, if `python3` isn't on your PATH, substitute `py -3` for `python3` in every command below.
 
 The command:
-1. Scans `~/.claude/projects/` (first run can take 20–60 seconds on a heavy user's machine).
+1. Safely migrates the old Claude dashboard history once, then scans Claude and Codex logs.
 2. Starts a local server at http://127.0.0.1:8080.
 3. Opens your default browser to that URL.
 
@@ -50,12 +50,14 @@ Claude Code writes one JSONL file per session here:
 | macOS / Linux | `~/.claude/projects/<project-slug>/<session-id>.jsonl` |
 | Windows | `C:\Users\<you>\.claude\projects\<project-slug>\<session-id>.jsonl` |
 
-The dashboard never modifies those files — it only reads them and keeps a local SQLite cache at `~/.claude/token-dashboard.db`.
+Codex rollout logs live under `~/.codex/sessions/` on macOS/Linux and `C:\Users\<you>\.codex\sessions\` on Windows.
+
+The dashboard never modifies those files. The combined cache lives at `~/.token-dashboard/token-dashboard.db`. If `~/.claude/token-dashboard.db` exists on first launch, its rows and settings are copied with `source=claude`; the old database is never overwritten or deleted.
 
 To point at a different location:
 
 ```bash
-python3 cli.py dashboard --projects-dir /path/to/projects --db /path/to/cache.db
+python3 cli.py dashboard --claude-dir /path/to/claude --codex-dir /path/to/codex --source all --db /path/to/cache.db
 ```
 
 ### Environment variables
@@ -65,7 +67,9 @@ python3 cli.py dashboard --projects-dir /path/to/projects --db /path/to/cache.db
 | `PORT` | `8080` | Port the local web server listens on |
 | `HOST` | `127.0.0.1` | Bind address. Keep the default. Setting `0.0.0.0` exposes your entire prompt history to anyone on your local network — don't do this on any network you don't fully control (no coffee-shop Wi-Fi, no coworking spaces). |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Where to scan for session JSONL files |
-| `TOKEN_DASHBOARD_DB` | `~/.claude/token-dashboard.db` | SQLite cache location |
+| `CODEX_SESSIONS_DIR` | `~/.codex/sessions` | Where to scan for Codex rollout JSONL files |
+| `TOKEN_DASHBOARD_SOURCE` | `all` | Scan selection: `all`, `claude`, or `codex` |
+| `TOKEN_DASHBOARD_DB` | `~/.token-dashboard/token-dashboard.db` | SQLite cache location |
 
 Pricing lives in [`pricing.json`](pricing.json). Edit it directly if model prices change or to add a new plan.
 
@@ -77,6 +81,7 @@ python3 cli.py today         # today's totals (terminal)
 python3 cli.py stats         # all-time totals (terminal)
 python3 cli.py tips          # active suggestions (terminal)
 python3 cli.py dashboard     # scan + serve the UI at http://localhost:8080
+python3 cli.py migrate-legacy # idempotently copy the old Claude DB
 
 # dashboard flags
 python3 cli.py dashboard --no-open   # don't auto-open the browser
@@ -105,7 +110,7 @@ The Overview tab also has a built-in "What do these numbers mean?" panel that ex
 
 **Port 8080 already in use.** `PORT=9000 python3 cli.py dashboard`.
 
-**Numbers look wrong / stuck.** The DB lives at `~/.claude/token-dashboard.db`. Delete it and re-run `python3 cli.py scan` to rebuild from scratch.
+**Numbers look wrong / stuck.** Run `python3 cli.py scan --source all`. Do not delete the old `~/.claude/token-dashboard.db`; it may contain history no longer present in pruned JSONLs.
 
 **Running the dashboard twice at the same time.** Don't — both processes will fight over the SQLite DB. Stop all instances before starting a new one.
 
@@ -121,7 +126,7 @@ Nothing leaves your machine. No telemetry. No remote calls for your data. The br
 
 Python 3 (stdlib only) for the CLI, scanner, and HTTP server. SQLite for the local cache. Vanilla JS + ECharts for the UI, no build step. Dark theme, hash-based router, server-sent events for live refresh.
 
-Data flow: `cli.py` → `token_dashboard/scanner.py` → SQLite DB; `token_dashboard/server.py` exposes `/api/*` JSON routes and serves `web/`.
+Data flow: `cli.py` → shared coordinator → Claude/Codex scanners → SQLite DB; `token_dashboard/server.py` exposes source-filtered `/api/*` routes and serves `web/`.
 
 ## Further reading
 

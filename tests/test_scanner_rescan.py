@@ -94,7 +94,7 @@ class RescanIdempotencyTests(unittest.TestCase):
                 r[0] for r in c.execute("SELECT uuid FROM messages")
             )
         self.assertEqual(
-            uuids_after_scan1, ["a1", "u1"],
+            uuids_after_scan1, ["claude:a1", "claude:u1"],
             "partial line must be skipped on first scan (JSON decode fails)",
         )
 
@@ -113,7 +113,7 @@ class RescanIdempotencyTests(unittest.TestCase):
                 r[0] for r in c.execute("SELECT uuid FROM messages")
             )
         self.assertEqual(
-            uuids_after_scan2, ["a1", "a2", "a3", "u1"],
+            uuids_after_scan2, ["claude:a1", "claude:a2", "claude:a3", "claude:u1"],
             "record whose line was partial on scan 1 must be loaded on scan 2",
         )
 

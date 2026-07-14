@@ -28,6 +28,7 @@ class CacheTipTests(unittest.TestCase):
         self._ins("2026-04-15T00:00:00Z", "projX", 10, 1_000_000)
         tips = cache_discipline_tips(self.db, today_iso="2026-04-19T00:00:00")
         self.assertTrue(any(t["category"] == "cache" for t in tips))
+        self.assertEqual(cache_discipline_tips(self.db, today_iso="2026-04-19T00:00:00", source="codex"), [])
 
     def test_healthy_cache_no_tip(self):
         for i in range(10):

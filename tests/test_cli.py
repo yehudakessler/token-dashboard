@@ -43,6 +43,15 @@ class CliTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("no suggestions", r.stdout)
 
+    def test_invalid_source_environment_is_rejected(self):
+        env = {**os.environ, "TOKEN_DASHBOARD_DB": self.db, "TOKEN_DASHBOARD_SOURCE": "other"}
+        r = subprocess.run(
+            [sys.executable, "cli.py", "stats"], cwd=ROOT, env=env,
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("must be all, claude, or codex", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

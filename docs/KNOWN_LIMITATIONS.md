@@ -8,6 +8,12 @@ The Skills route shows every skill Claude Code invoked, how many times, across h
 
 It's still a useful view — you can see which skills dominate your session time — just don't expect a complete per-skill token cost. PRs to broaden the catalog scan welcome.
 
+Codex rollout logs do not reliably prove skill invocation, so the dashboard reports no Codex skill counts instead of estimating them.
+
+## Codex prices are unavailable unless explicitly configured
+
+Codex usage is counted from local `last_token_usage` events, but this project does not invent prices for private or unlisted model slugs. The UI marks cost as partial when an observed model has no verified entry in `pricing.json`.
+
 ## Cost for Pro / Max / Max-20x users is shown as API-equivalent, not subscription value
 
 The Settings route lets you select your pricing plan, but the Overview cost number is always the API-equivalent (what the same usage would have cost on pay-per-token rates). If you're on Pro you pay a flat $20/month regardless of how much of that API-equivalent number you rack up. We don't do "subscription ROI" math yet — Anthropic doesn't publish per-plan rate limits as public JSON, and faking it would be worse than not doing it.

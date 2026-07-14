@@ -34,7 +34,7 @@ def dismiss_tip(db_path, key: str) -> None:
         c.commit()
 
 
-def cache_discipline_tips(db_path, today_iso: Optional[str] = None) -> List[dict]:
+def cache_discipline_tips(db_path, today_iso: Optional[str] = None, source: str = "all") -> List[dict]:
     today_iso = today_iso or datetime.utcnow().isoformat()
     since = _iso_days_ago(today_iso, 7)
     sql = """
@@ -42,13 +42,13 @@ def cache_discipline_tips(db_path, today_iso: Optional[str] = None) -> List[dict
              SUM(cache_read_tokens) AS cr,
              SUM(input_tokens + cache_create_5m_tokens + cache_create_1h_tokens) AS rebuild
         FROM messages
-       WHERE type='assistant' AND timestamp >= ?
+       WHERE type='assistant' AND timestamp >= ? AND (?='all' OR source=?)
        GROUP BY project_slug
        HAVING (cr + rebuild) > 100000
     """
     out = []
     with connect(db_path) as c:
-        for row in c.execute(sql, (since,)):
+        for row in c.execute(sql, (since, source, source)):
             total = (row["cr"] or 0) + (row["rebuild"] or 0)
             hit = (row["cr"] or 0) / total if total else 0
             if hit < 0.40:
@@ -65,7 +65,7 @@ def cache_discipline_tips(db_path, today_iso: Optional[str] = None) -> List[dict
     return out
 
 
-def repeated_target_tips(db_path, today_iso: Optional[str] = None) -> List[dict]:
+def repeated_target_tips(db_path, today_iso: Optional[str] = None, source: str = "all") -> List[dict]:
     today_iso = today_iso or datetime.utcnow().isoformat()
     since = _iso_days_ago(today_iso, 7)
     out = []
@@ -73,10 +73,10 @@ def repeated_target_tips(db_path, today_iso: Optional[str] = None) -> List[dict]
         for row in c.execute("""
           SELECT target, COUNT(*) AS n, COUNT(DISTINCT session_id) AS sessions
             FROM tool_calls
-           WHERE tool_name IN ('Read','Edit','Write') AND timestamp >= ?
+           WHERE tool_name IN ('Read','Edit','Write') AND timestamp >= ? AND (?='all' OR source=?)
            GROUP BY target HAVING n > 10
            ORDER BY n DESC LIMIT 10
-        """, (since,)):
+        """, (since, source, source)):
             key = _key("repeat-file", row["target"] or "?")
             if _is_dismissed(db_path, key):
                 continue
@@ -89,10 +89,10 @@ def repeated_target_tips(db_path, today_iso: Optional[str] = None) -> List[dict]
         for row in c.execute("""
           SELECT target, COUNT(*) AS n
             FROM tool_calls
-           WHERE tool_name='Bash' AND timestamp >= ?
+           WHERE tool_name='Bash' AND timestamp >= ? AND (?='all' OR source=?)
            GROUP BY target HAVING n > 15
            ORDER BY n DESC LIMIT 10
-        """, (since,)):
+        """, (since, source, source)):
             key = _key("repeat-bash", row["target"] or "?")
             if _is_dismissed(db_path, key):
                 continue
@@ -105,7 +105,7 @@ def repeated_target_tips(db_path, today_iso: Optional[str] = None) -> List[dict]
     return out
 
 
-def right_size_tips(db_path, today_iso: Optional[str] = None) -> List[dict]:
+def right_size_tips(db_path, today_iso: Optional[str] = None, source: str = "all") -> List[dict]:
     today_iso = today_iso or datetime.utcnow().isoformat()
     since = _iso_days_ago(today_iso, 7)
     sql = """
@@ -115,10 +115,10 @@ def right_size_tips(db_path, today_iso: Optional[str] = None) -> List[dict]:
         FROM messages
        WHERE type='assistant' AND model LIKE '%opus%'
          AND output_tokens < 500 AND is_sidechain = 0
-         AND timestamp >= ?
+         AND timestamp >= ? AND (?='all' OR source=?)
     """
     with connect(db_path) as c:
-        row = c.execute(sql, (since,)).fetchone()
+        row = c.execute(sql, (since, source, source)).fetchone()
     if not row or (row["n"] or 0) < 10:
         return []
     api_opus   = ((row["in_tok"] or 0) * 15 + (row["out_tok"] or 0) * 75) / 1_000_000
@@ -137,7 +137,7 @@ def right_size_tips(db_path, today_iso: Optional[str] = None) -> List[dict]:
     }]
 
 
-def outlier_tips(db_path, today_iso: Optional[str] = None) -> List[dict]:
+def outlier_tips(db_path, today_iso: Optional[str] = None, source: str = "all") -> List[dict]:
     today_iso = today_iso or datetime.utcnow().isoformat()
     since = _iso_days_ago(today_iso, 7)
     out = []
@@ -145,8 +145,8 @@ def outlier_tips(db_path, today_iso: Optional[str] = None) -> List[dict]:
         big = c.execute("""
           SELECT COUNT(*) AS n, AVG(result_tokens) AS avg_t
             FROM tool_calls
-           WHERE tool_name='_tool_result' AND result_tokens > 50000 AND timestamp >= ?
-        """, (since,)).fetchone()
+           WHERE tool_name='_tool_result' AND result_tokens > 50000 AND timestamp >= ? AND (?='all' OR source=?)
+        """, (since, source, source)).fetchone()
         if big and (big["n"] or 0) >= 5:
             key = _key("tool-bloat", "result-50k+")
             if not _is_dismissed(db_path, key):
@@ -161,9 +161,9 @@ def outlier_tips(db_path, today_iso: Optional[str] = None) -> List[dict]:
                  AVG(input_tokens+output_tokens) AS mean_t,
                  MAX(input_tokens+output_tokens) AS max_t
             FROM messages
-           WHERE is_sidechain=1 AND agent_id IS NOT NULL AND timestamp >= ?
+           WHERE is_sidechain=1 AND agent_id IS NOT NULL AND timestamp >= ? AND (?='all' OR source=?)
            GROUP BY agent_id HAVING n >= 10
-        """, (since,)):
+        """, (since, source, source)):
             if (row["max_t"] or 0) > 6 * (row["mean_t"] or 1) and (row["max_t"] or 0) > 50_000:
                 key = _key("subagent-outlier", row["agent_id"])
                 if _is_dismissed(db_path, key):
@@ -177,10 +177,10 @@ def outlier_tips(db_path, today_iso: Optional[str] = None) -> List[dict]:
     return out
 
 
-def all_tips(db_path, today_iso: Optional[str] = None) -> List[dict]:
+def all_tips(db_path, today_iso: Optional[str] = None, source: str = "all") -> List[dict]:
     return [
-        *cache_discipline_tips(db_path, today_iso),
-        *repeated_target_tips(db_path, today_iso),
-        *right_size_tips(db_path, today_iso),
-        *outlier_tips(db_path, today_iso),
+        *cache_discipline_tips(db_path, today_iso, source),
+        *repeated_target_tips(db_path, today_iso, source),
+        *right_size_tips(db_path, today_iso, source),
+        *outlier_tips(db_path, today_iso, source),
     ]

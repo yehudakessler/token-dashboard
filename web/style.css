@@ -62,6 +62,14 @@ header.topbar {
   background: var(--panel-2); border: 1px solid var(--border);
   color: var(--muted); font-size: 12px; font-family: var(--mono);
 }
+.source-control { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
+.source-control select { padding:4px 24px 4px 8px; font-family:var(--mono); text-transform:none; letter-spacing:0; }
+.badge.claude { color:#C9A6FF; border-color:rgba(201,166,255,.3); background:rgba(201,166,255,.08); }
+.badge.codex { color:#62D6A8; border-color:rgba(98,214,168,.3); background:rgba(98,214,168,.08); }
+@media (max-width: 900px) {
+  header.topbar { flex-wrap:wrap; }
+  .topbar nav { order:3; width:100%; overflow-x:auto; margin-left:0; }
+}
 
 /* main */
 main#app { padding: 24px 20px; max-width: 1400px; margin: 0 auto; }

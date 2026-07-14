@@ -28,7 +28,7 @@ class WalkTests(unittest.TestCase):
         self.assertEqual(n["messages"], 3)
         self.assertEqual(n["tools"], 2)  # 1 tool_use + 1 tool_result
         with sqlite3.connect(self.db) as c:
-            row = c.execute("SELECT project_slug FROM messages WHERE uuid='u1'").fetchone()
+            row = c.execute("SELECT project_slug FROM messages WHERE uuid='claude:u1'").fetchone()
         self.assertEqual(row[0], "C--work-sample")
 
     def test_rescan_skips_unchanged_files(self):

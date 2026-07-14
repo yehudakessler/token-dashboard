@@ -14,18 +14,20 @@ INSERT OR REPLACE INTO messages (
   uuid, parent_uuid, session_id, project_slug, cwd, git_branch, cc_version, entrypoint,
   type, is_sidechain, agent_id, timestamp, model, stop_reason, prompt_id, message_id,
   input_tokens, output_tokens, cache_read_tokens, cache_create_5m_tokens, cache_create_1h_tokens,
-  prompt_text, prompt_chars, tool_calls_json
+  prompt_text, prompt_chars, tool_calls_json, source, turn_key,
+  parent_session_id, agent_name, agent_path, forked_from_id
 ) VALUES (
   :uuid, :parent_uuid, :session_id, :project_slug, :cwd, :git_branch, :cc_version, :entrypoint,
   :type, :is_sidechain, :agent_id, :timestamp, :model, :stop_reason, :prompt_id, :message_id,
   :input_tokens, :output_tokens, :cache_read_tokens, :cache_create_5m_tokens, :cache_create_1h_tokens,
-  :prompt_text, :prompt_chars, :tool_calls_json
+  :prompt_text, :prompt_chars, :tool_calls_json, :source, :turn_key,
+  :parent_session_id, :agent_name, :agent_path, :forked_from_id
 )
 """
 
 INSERT_TOOL = """
-INSERT INTO tool_calls (message_uuid, session_id, project_slug, tool_name, target, result_tokens, is_error, timestamp)
-VALUES (:message_uuid, :session_id, :project_slug, :tool_name, :target, :result_tokens, :is_error, :timestamp)
+INSERT INTO tool_calls (message_uuid, session_id, project_slug, tool_name, target, result_tokens, is_error, timestamp, source, call_id)
+VALUES (:message_uuid, :session_id, :project_slug, :tool_name, :target, :result_tokens, :is_error, :timestamp, :source, :call_id)
 """
 
 
@@ -146,6 +148,12 @@ def parse_record(rec: dict, project_slug: str) -> Tuple[dict, List[dict]]:
         "prompt_text":  text,
         "prompt_chars": chars,
         "tool_calls_json": None,
+        "source":       "claude",
+        "turn_key":     rec.get("promptId"),
+        "parent_session_id": None,
+        "agent_name":    None,
+        "agent_path":    None,
+        "forked_from_id": None,
         **_usage(rec),
     }
     tools = _extract_tools(rec)
@@ -158,6 +166,8 @@ def parse_record(rec: dict, project_slug: str) -> Tuple[dict, List[dict]]:
         t["message_uuid"] = msg["uuid"]
         t["session_id"]   = msg["session_id"]
         t["project_slug"] = project_slug
+        t["source"]       = "claude"
+        t["call_id"]      = t.get("target") if t["tool_name"] == "_tool_result" else None
     return msg, tools
 
 
@@ -227,6 +237,15 @@ def scan_file(path: Path, project_slug: str, conn, start_byte: int = 0) -> dict:
             if not msg["session_id"] or not msg["timestamp"]:
                 end_offset = line_end
                 continue
+            # Namespace Claude identifiers so they cannot collide with Codex.
+            for key in ("uuid", "parent_uuid", "session_id", "prompt_id", "message_id", "turn_key"):
+                if msg.get(key) and not str(msg[key]).startswith("claude:"):
+                    msg[key] = f"claude:{msg[key]}"
+            for tool in tlist:
+                tool["message_uuid"] = msg["uuid"]
+                tool["session_id"] = msg["session_id"]
+                if tool.get("call_id") and not str(tool["call_id"]).startswith("claude:"):
+                    tool["call_id"] = f"claude:{tool['call_id']}"
             if msg["message_id"]:
                 _evict_prior_snapshots(conn, msg["session_id"], msg["message_id"], msg["uuid"])
             conn.execute(INSERT_MSG, msg)
@@ -254,7 +273,7 @@ def scan_dir(projects_root: Union[str, Path], db_path: Union[str, Path]) -> dict
             except OSError:
                 continue
             row = conn.execute(
-                "SELECT mtime, bytes_read FROM files WHERE path=?", (str(p),)
+                "SELECT mtime, bytes_read FROM files WHERE path=? AND source='claude'", (str(p),)
             ).fetchone()
             offset = 0
             if row and row["mtime"] == stat.st_mtime and row["bytes_read"] == stat.st_size:
@@ -267,11 +286,28 @@ def scan_dir(projects_root: Union[str, Path], db_path: Union[str, Path]) -> dict
             # st_size) so a partial line mid-flush is retried on the next
             # scan instead of being skipped over.
             conn.execute(
-                "INSERT OR REPLACE INTO files (path, mtime, bytes_read, scanned_at) VALUES (?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO files (path, mtime, bytes_read, scanned_at, source) VALUES (?, ?, ?, ?, 'claude')",
                 (str(p), stat.st_mtime, sub["end_offset"], time.time()),
             )
             totals["messages"] += sub["messages"]
             totals["tools"]    += sub["tools"]
             totals["files"]    += 1
         conn.commit()
+    return totals
+
+
+def scan_sources(claude_root, codex_root, db_path, source="all") -> dict:
+    """Shared coordinator while keeping ``scan_dir`` as the Claude-compatible API."""
+    totals = {"messages": 0, "tools": 0, "files": 0, "by_source": {}}
+    if source in {"all", "claude"}:
+        result = scan_dir(claude_root, db_path)
+        totals["by_source"]["claude"] = result
+        for key in ("messages", "tools", "files"):
+            totals[key] += result[key]
+    if source in {"all", "codex"}:
+        from .codex_scanner import scan_codex_dir
+        result = scan_codex_dir(codex_root, db_path)
+        totals["by_source"]["codex"] = result
+        for key in ("messages", "tools", "files"):
+            totals[key] += result[key]
     return totals
