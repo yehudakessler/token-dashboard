@@ -249,26 +249,28 @@ def migrate_legacy_db(legacy_path: Union[str, Path], target_path: Union[str, Pat
             if "tool_calls" in {r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type='table'")}:
                 src_cols = _columns(src, "tool_calls")
                 cols = [c for c in _columns(dst, "tool_calls") if c in src_cols and c not in {"id", "source", "call_id"}]
+                key_columns = (
+                    "message_uuid", "session_id", "project_slug", "tool_name",
+                    "target", "result_tokens", "is_error", "timestamp",
+                )
+                existing_tools = {
+                    tuple(row) for row in dst.execute(
+                        f"SELECT {','.join(key_columns)} FROM tool_calls WHERE source='claude'"
+                    )
+                }
                 for row in src.execute(f"SELECT {','.join(cols)} FROM tool_calls"):
                     data = dict(row)
                     for key in ("message_uuid", "session_id"):
                         data[key] = _prefixed("claude", data.get(key))
                     data["source"] = "claude"
                     names = list(data)
-                    duplicate = dst.execute("""
-                      SELECT 1 FROM tool_calls WHERE source='claude'
-                       AND message_uuid=? AND session_id=? AND project_slug=? AND tool_name=?
-                       AND target IS ? AND result_tokens IS ? AND is_error=? AND timestamp=? LIMIT 1
-                    """, (
-                        data.get("message_uuid"),data.get("session_id"),data.get("project_slug"),
-                        data.get("tool_name"),data.get("target"),data.get("result_tokens"),
-                        data.get("is_error"),data.get("timestamp"),
-                    )).fetchone()
-                    if not duplicate:
+                    fingerprint = tuple(data.get(key) for key in key_columns)
+                    if fingerprint not in existing_tools:
                         dst.execute(
                             f"INSERT INTO tool_calls ({','.join(names)}) VALUES ({','.join('?' for _ in names)})",
                             [data[n] for n in names],
                         )
+                        existing_tools.add(fingerprint)
                         copied += 1
             if "files" in {r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type='table'")}:
                 for row in src.execute("SELECT path,mtime,bytes_read,scanned_at FROM files"):
